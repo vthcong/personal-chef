@@ -80,7 +80,7 @@ with st.sidebar:
     st.header("Your Fridge")
     uploaded_file = st.file_uploader("Upload an image of your ingredients", type=["png", "jpg", "jpeg"])
 
-if user_text or uploaded_file:
+if user_text:
     with st.spinner("Thinking..."):
         
         content = []
