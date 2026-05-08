@@ -72,25 +72,32 @@ for msg in st.session_state.messages:
             st.write(msg.content)
 
 # --- USER INPUT ---
-# We use st.chat_input for the text, which is cleaner for memory-based chatbots
-user_text = st.chat_input("Ask a follow-up or suggest an ingredient...")
+# Use st.chat_input for the text, which is cleaner for memory-based chatbots
+user_text = st.chat_input("Ask a follow-up, or suggest an ingredient...")
 
 # We keep the file uploader in the sidebar to keep the chat interface clean
 with st.sidebar:
     st.header("Your Fridge")
     uploaded_file = st.file_uploader("Upload an image of your ingredients", type=["png", "jpg", "jpeg"])
 
+# --- IMAGE TRACKER ---
+# This ensures we don't re-send the same image to the AI on every follow-up chat
+if "processed_image_ids" not in st.session_state:
+    st.session_state.processed_image_ids = set()
+
+# --- EXECUTION BLOCK ---
+# ONLY trigger when the user types a message and hits the send button.
 if user_text:
     with st.spinner("Thinking..."):
         
         content = []
         
-        # 1. Add text prompt (either the user's text or a default prompt for the image)
-        text_prompt = user_text if user_text else "What recipes can I make with these uploaded ingredients?"
-        content.append({"type": "text", "text": text_prompt})
+        # 1. Add the text prompt the user just typed
+        content.append({"type": "text", "text": user_text})
         
-        # 2. Process the image if one was uploaded
-        if uploaded_file is not None:
+        # 2. Process the image ONLY if it was uploaded AND hasn't been processed in this session yet
+        image_added = False
+        if uploaded_file is not None and uploaded_file.file_id not in st.session_state.processed_image_ids:
             img_bytes = uploaded_file.getvalue()
             img_b64 = base64.b64encode(img_bytes).decode("utf-8")
             mime_type = uploaded_file.type 
@@ -101,24 +108,24 @@ if user_text:
                 "mime_type": mime_type
             })
             
-            # Clear the uploaded file from the UI so it doesn't get re-sent endlessly
-            # Note: Streamlit's file_uploader doesn't clear easily without a rerun, so usually users just upload it once on their first prompt.
+            # Mark this specific image as processed
+            st.session_state.processed_image_ids.add(uploaded_file.file_id)
+            image_added = True
         
         # 3. Create the HumanMessage and append it to our session state memory
-        # If it contains an image, we pass the array. If it's just text, we pass the string.
-        new_human_message = HumanMessage(content=content if uploaded_file else text_prompt)
+        # If we just added a new image, send the multimodal array. If it's just text, send the string.
+        new_human_message = HumanMessage(content=content if image_added else user_text)
         st.session_state.messages.append(new_human_message)
         
         # Render the user's newest message immediately
         with st.chat_message("user"):
-            st.write(text_prompt)
+            st.write(user_text)
 
         # 4. Invoke the agent with the ENTIRE message history
         try:
-            # We pass the full st.session_state.messages list so the agent remembers everything
             response = agent.invoke({"messages": st.session_state.messages})
             
-            # 5. Extract the AI's response, display it, and save it to memory
+            # Extract the AI's response, display it, and save it to memory
             ai_response = response['messages'][-1].content
             
             with st.chat_message("assistant"):
